@@ -27,54 +27,44 @@ library(sp)
 library(tidyr)
 library(dplyr)
 
+# 
+library(httr)
+library(jsonlite)
+
 # Define User interface ---------------------------------------------------
 
-
 ui <- fluidPage(
-  titlePanel("Diagnostics of the ICES Acoustic database"),
+  titlePanel("Diagnostics of the ICES Acoustic Trawl database"),
    tabsetPanel(
-     tabPanel("Import data", 
-
-  fluidRow(
-    column(width = 6,
-           h2('Import Biotic file'),
-           dataTableOutput('mytable1'),
-           fileInput('file1', 'Choose csv to upload',
-                     accept = c('.csv',
-                       buttonLabel = "Upload...")
-           ),
-           tags$hr(),
-           radioButtons("file", "Show table",
-                                            choices = c(Biotic = "df1",
-                                                        Acoustic = "df2"),
-                                            selected = "df1")
-          # selectInput("columns", "Select Columns", choices = NULL), # no choices before uploading
-          # column(dataTableOutput("table_display1"),width=4)
-    ),
-    column(width = 6,
-           h2('Import Acoustic File'),
-           
-           dataTableOutput('mytable2'),
-           
-           fileInput('file2', 'Choose csv to upload',
-                     accept = c(
-                       'text/csv',
-                       '.csv',
-                       buttonLabel = "Upload..."
-                     ))),
-         mainPanel(
-           
-           tableOutput("contents")
-  ))),
-            
-    tabPanel("Biotic diagnostics",
+     tabPanel("Select data",
+              dataTableOutput("cruises")
+              ),
+     tabPanel("Import data",
+              fluidRow(
+                column(width = 6,
+                h2('Import Biotic file'),
+                dataTableOutput('mytable1'),
+                fileInput('file1', 'Choose csv to upload', accept = c('.csv', buttonLabel = "Upload...")),
+                tags$hr(),
+                radioButtons("file", "Show table", choices = c(Biotic = "df1", Acoustic = "df2"), selected = "df1")),
+                column(width = 6,
+                h2('Import Acoustic File'),
+                dataTableOutput('mytable2'),
+                fileInput('file2', 'Choose csv to upload', accept = c('.csv', buttonLabel = "Upload..."))
+                ),
+                mainPanel(
+                  tableOutput("contents")
+                  )
+                )
+              ),
+     tabPanel("Biotic diagnostics",
               selectInput(inputId = "species",
                           label = "Choose a species:",
                           choices = c("Herring", "Sprat")),
               selectInput(inputId = "Plot_abiotic",
                           label = "Choose a figure:",
                           choices = c("Species distribution", "Length distribution overall", "Length distribution per haul", "Weight-length relationship overall", "Weight-length relationship per haul", "Age distribution overall measured", "Age distribution per haul measured","Age-length-key overall", "Age-length-key per haul", "Haul distribution")),
-             plotOutput("plot_biotic")
+              plotOutput("plot_biotic")
                #,"length distribution per SD", "Catch overview map"
                
              ),
@@ -87,43 +77,56 @@ ui <- fluidPage(
                     h4("Brushed points"),
                     tableOutput("data")))#verbatimTextOutput("brush_info")
     )
-    
-  
-))
+  )
+)
   
 
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
   
+  cruises <- reactive({
+    res <- GET("https://acoustic.ices.dk/services/Download/GetUploadlist/", accept_json())
+    uploads <- parse_json(content(res, as = "text"), simplifyVector = TRUE, flatten = TRUE)
+    data.frame(
+      ID = uploads$Cruise.ID,
+      SurveyCode = substring(unlist(uploads$Cruise.Survey), 11),
+      CountryCode = substring(uploads$Cruise.Country, 10),
+      PlatformCode = substring(uploads$Cruise.Platform, 7),
+      StartDate = uploads$Cruise.StartDate,
+      EndDate = uploads$Cruise.EndDate,
+      LocalID = uploads$Cruise.LocalID,
+      AcousticSubmission = uploads$Cruise.AcousticSubmission,
+      BioticSubmission = uploads$Cruise.BioticSubmission)
+  })
+  
+  output$cruises <- renderDataTable({
+    cruises()
+  })
+
   output$contents <- renderTable({
     req(input$file1)
     req(input$file2)
     ncol <- max(count.fields(input$file2$datapath, sep = ","))
-     df1 <- read.csv(input$file1$datapath,
+    df1 <- read.csv(input$file1$datapath,
                     header = F,
                     sep = ",",
                     quote = "")
-     df2 <- read.csv(input$file2$datapath,
-                     header = F,   
-                     col.names = paste0("V", seq_len(ncol)),
-                     fill=TRUE,
-                     sep = ",",
-                     quote = "")
-     
-      if(input$file == "df1") {
-                 return(df1)
-               }
-               else {
-              return(df2)
-      }
-     
-
-  
+    df2 <- read.csv(input$file2$datapath,
+                    header = F,   
+                    col.names = paste0("V", seq_len(ncol)),
+                    fill=TRUE,
+                    sep = ",",
+                    quote = "")
+    if (input$file == "df1") {
+      return(df1)
+    } else {
+      return(df2)
+    }
    })
   
-   output$plot <- renderPlot({
-  req(input$file2)
+  output$plot <- renderPlot({
+    req(input$file2)
   #ncol <- max(input$file2$datapath, sep = ",")
   df2 <- read.table(input$file2$datapath,
                   header = FALSE,
